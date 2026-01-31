@@ -5,65 +5,36 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   if (!videoId) return res.status(400).json({ error: "Falta el ID" });
 
   try {
-    const response = await fetch(`https://music.youtube.com/youtubei/v1/player?key=AIzaSyAO_Sshmto67S60V6wA`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'User-Agent': 'com.google.ios.youtubemusic/6.41.2 (iPhone16,2; U; CPU iOS 17_5 like Mac OS X; es_ES)',
-        'X-Youtube-Client-Name': '26',
-        'X-Youtube-Client-Version': '6.41.2'
-      },
-      body: JSON.stringify({
-        context: {
-          client: {
-            clientName: "IOS_MUSIC",
-            clientVersion: "6.41.2",
-            deviceModel: "iPhone16,2",
-            osName: "iOS",
-            osVersion: "17.5.0",
-            hl: "es-ES",
-            gl: "ES"
-          }
-        },
-        videoId: videoId,
-        playbackContext: {
-          contentPlaybackContext: {
-            signatureTimestamp: 19742 // Timestamp actual para el player de música
-          }
-        }
-      })
-    });
+    // Usamos una instancia de Invidious (puedes cambiar la URL si una falla)
+    const invidiousInstance = "https://invidious.lunar.icu"; 
+    
+    const response = await fetch(`${invidiousInstance}/api/v1/videos/${videoId}`);
+    
+    if (!response.ok) {
+      throw new Error("Instancia de Invidious no disponible");
+    }
 
     const data = await response.json();
     
-    // Si sigue saliendo "No disponible", probamos a buscar los datos en otra parte del JSON
-    const playability = data.playabilityStatus;
-    if (playability?.status !== "OK") {
-       return res.status(403).json({ 
-         error: "Restricción de YouTube", 
-         reason: playability?.reason || "Contenido protegido"
-       });
-    }
+    // Invidious nos da los formatos de audio directamente
+    const audioFormat = data.adaptiveFormats.find((f: any) => f.container === "m4a" || f.type.includes("audio/mp4"));
 
-    const formats = data.streamingData?.adaptiveFormats || [];
-    // Priorizamos itag 140 (audio puro)
-    const audioFormat = formats.find((f: any) => f.itag === 140) || formats.find((f: any) => f.mimeType.includes('audio'));
-
-    if (!audioFormat?.url) {
-      return res.status(403).json({ 
-        error: "Firma requerida",
-        details: "YouTube detectó el servidor" 
-      });
+    if (!audioFormat) {
+      return res.status(404).json({ error: "No se encontró audio compatible" });
     }
 
     res.status(200).json({
-      title: data.videoDetails.title,
-      artist: data.videoDetails.author,
-      thumbnail: `https://i.ytimg.com/vi/${videoId}/maxresdefault.jpg`,
-      streamUrl: audioFormat.url
+      title: data.title,
+      artist: data.author,
+      thumbnail: data.videoThumbnails.find((t: any) => t.quality === "maxresdefault")?.url || data.videoThumbnails[0].url,
+      streamUrl: audioFormat.url // Esta URL ya viene procesada y lista para sonar
     });
 
   } catch (e) {
-    res.status(500).json({ error: "Error de servidor", details: String(e) });
+    res.status(500).json({ 
+      error: "Error de servidor", 
+      details: "Intentando usar proxy alternativo...",
+      msg: String(e) 
+    });
   }
 }
