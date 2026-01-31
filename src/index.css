@@ -1,0 +1,36 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  /* Colores fallback por si falla el Dynamic Theme */
+  --md-sys-color-background: #1a1c1e;
+  --md-sys-color-on-background: #e2e2e6;
+  --md-sys-color-surface: #1a1c1e;
+  --md-sys-color-surface-container-high: #2b2f33;
+  --md-sys-color-primary: #d0e4ff;
+  --md-sys-color-primary-container: #004977;
+  --md-sys-color-on-surface: #e2e2e6;
+  --md-sys-color-on-surface-variant: #c3c7cf;
+}
+
+body {
+  margin: 0;
+  padding: 0;
+  font-family: 'Roboto', sans-serif;
+  background-color: var(--md-sys-color-background);
+  color: var(--md-sys-color-on-background);
+  overflow-x: hidden;
+  -webkit-tap-highlight-color: transparent;
+}
+
+/* Transición suave para el cambio de color dinámico */
+* {
+  transition: background-color 0.8s ease, color 0.5s ease;
+}
+
+/* Estilo del Slider de Audio personalizado M3 */
+input[type='range'] {
+  accent-color: var(--md-sys-color-primary);
+  height: 4px;
+}
