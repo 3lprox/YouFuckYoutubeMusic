@@ -4,20 +4,36 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   const { videoId } = req.query;
   if (!videoId) return res.status(400).json({ error: "Falta el ID" });
 
-  // Intentamos obtener el stream a través de un servicio de distribución de medios abierto
-  // Este servicio actúa como un túnel para que YouTube no vea la IP de Vercel
-  const streamService = `https://api.vevioz.com/api/button/mp3/${videoId}`;
-
   try {
-    // En lugar de procesar el audio, Symphony redirigirá al stream directo
-    // Esto evita que Vercel sea el que "pide" el archivo y sea bloqueado
+    // Usamos el nodo de Piped para obtener el stream directo
+    const response = await fetch(`https://pipedapi.kavin.rocks/streams/${videoId}`);
+    
+    if (!response.ok) {
+      throw new Error("El nodo de Symphony no responde");
+    }
+
+    const data = await response.json();
+
+    // Buscamos el stream de audio en formato M4A (nativo de Apple y Android)
+    const audioStream = data.audioStreams.find((s: any) => 
+      s.format === "M4A" || s.mimeType.includes("audio/mp4")
+    );
+
+    if (!audioStream) {
+      throw new Error("No se encontró un formato de audio compatible");
+    }
+
     res.status(200).json({
-      title: "Cargando audio...",
-      artist: "Symphony Player",
-      thumbnail: `https://i.ytimg.com/vi/${videoId}/maxresdefault.jpg`,
-      streamUrl: `https://convert.pwnyoutube.com/download/mp3/${videoId}` 
+      title: data.title,
+      artist: data.uploader,
+      thumbnail: data.thumbnailUrl,
+      streamUrl: audioStream.url
     });
+
   } catch (e) {
-    res.status(500).json({ error: "Error en el nodo Symphony" });
+    res.status(500).json({ 
+      error: "Symphony Node Error", 
+      details: String(e) 
+    });
   }
 }
