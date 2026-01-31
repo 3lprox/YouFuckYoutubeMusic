@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { Play, Pause, SkipForward, SkipBack, Search, Music2, Volume2 } from 'lucide-react';
+import { Play, Pause, SkipForward, SkipBack, Search, Music2, AlertCircle } from 'lucide-react';
 
 interface Track {
   title: string;
@@ -14,134 +14,154 @@ function App() {
   const [isPlaying, setIsPlaying] = useState(false);
   const [loading, setLoading] = useState(false);
   const [progress, setProgress] = useState(0);
+  const [audioError, setAudioError] = useState<string | null>(null);
   const audioRef = useRef<HTMLAudioElement>(null);
 
   const fetchTrack = async () => {
     if (!query) return;
     setLoading(true);
+    setAudioError(null);
     try {
+      // Cambiamos a la URL de tu API en Vercel
       const res = await fetch(`/api/fetch-track?videoId=${query}`);
       const data = await res.json();
+      
       if (data.streamUrl) {
         setCurrentTrack(data);
-        setIsPlaying(false); // Esperar a que el usuario pulse Play para cumplir con políticas de iOS
+        setIsPlaying(false);
+        // Resetear el elemento de audio para el nuevo stream
+        if (audioRef.current) {
+          audioRef.current.pause();
+          audioRef.current.load();
+        }
+      } else {
+        setAudioError("No se pudo obtener el enlace de audio");
       }
     } catch (error) {
-      console.error("Error cargando Symphony:", error);
+      setAudioError("Error de conexión con el servidor");
     } finally {
       setLoading(false);
     }
   };
 
   const togglePlay = () => {
-    if (audioRef.current) {
+    if (audioRef.current && currentTrack) {
       if (isPlaying) {
         audioRef.current.pause();
+        setIsPlaying(false);
       } else {
-        // En iOS/Android, play() devuelve una promesa que debe ser manejada
-        const playPromise = audioRef.current.play();
-        if (playPromise !== undefined) {
-          playPromise.catch(error => {
-            console.log("Reproducción bloqueada por el navegador:", error);
+        setAudioError(null);
+        // Intentar reproducir y capturar errores de políticas de navegador
+        audioRef.current.play()
+          .then(() => setIsPlaying(true))
+          .catch(err => {
+            console.error("Playback error:", err);
+            setAudioError("El navegador bloqueó el audio. Intenta pulsar Play de nuevo.");
           });
-        }
       }
-      setIsPlaying(!isPlaying);
     }
   };
 
   const handleTimeUpdate = () => {
     if (audioRef.current) {
-      const progress = (audioRef.current.currentTime / audioRef.current.duration) * 100;
-      setProgress(progress || 0);
+      const p = (audioRef.current.currentTime / audioRef.current.duration) * 100;
+      setProgress(p || 0);
     }
   };
 
+  // Efecto para debug de errores de audio
+  useEffect(() => {
+    const audio = audioRef.current;
+    if (!audio) return;
+
+    const handleError = () => {
+      console.error("Audio Element Error:", audio.error);
+      setAudioError("Error al cargar el stream. El servidor de audio podría estar saturado.");
+      setIsPlaying(false);
+    };
+
+    audio.addEventListener('error', handleError);
+    return () => audio.removeEventListener('error', handleError);
+  }, [currentTrack]);
+
   return (
     <div className="min-h-screen bg-[#0f0f0f] text-white flex flex-col items-center p-6 font-sans">
-      {/* Header / Search */}
       <div className="w-full max-w-md mt-8 space-y-6">
-        <h1 className="text-3xl font-bold text-center tracking-tight text-red-500">SYMPHONY</h1>
+        <h1 className="text-3xl font-bold text-center tracking-tight text-red-600">SYMPHONY</h1>
         
         <div className="relative flex items-center">
           <input
             type="text"
-            placeholder="Pega el ID de YouTube..."
-            className="w-full bg-[#212121] border-none rounded-full py-3 px-6 pr-12 focus:ring-2 focus:ring-red-600 outline-none transition-all"
+            placeholder="ID de YouTube (ej: j6YpC8I2T8k)"
+            className="w-full bg-[#212121] border-none rounded-full py-4 px-6 pr-12 focus:ring-2 focus:ring-red-600 outline-none transition-all"
             value={query}
             onChange={(e) => setQuery(e.target.value)}
+            onKeyDown={(e) => e.key === 'Enter' && fetchTrack()}
           />
           <button 
             onClick={fetchTrack}
             disabled={loading}
-            className="absolute right-2 p-2 bg-red-600 rounded-full hover:bg-red-700 transition-colors disabled:opacity-50"
+            className="absolute right-2 p-2.5 bg-red-600 rounded-full hover:bg-red-700 transition-colors disabled:opacity-50"
           >
             <Search size={20} />
           </button>
         </div>
 
-        {/* Player Card */}
+        {audioError && (
+          <div className="bg-red-900/20 border border-red-900/50 p-3 rounded-xl flex items-center gap-3 text-red-400 text-sm">
+            <AlertCircle size={18} />
+            <p>{audioError}</p>
+          </div>
+        )}
+
         {currentTrack && (
-          <div className="bg-[#1e1e1e] rounded-3xl p-6 shadow-2xl animate-in fade-in zoom-in duration-300">
-            <div className="aspect-square w-full mb-6 overflow-hidden rounded-2xl shadow-lg">
+          <div className="bg-[#1e1e1e] rounded-[2.5rem] p-8 shadow-2xl">
+            <div className="aspect-square w-full mb-8 overflow-hidden rounded-3xl shadow-2xl border border-white/5">
               <img 
                 src={currentTrack.thumbnail} 
-                alt="Thumbnail" 
+                alt="Album Art" 
                 className="w-full h-full object-cover"
               />
             </div>
             
-            <div className="space-y-1 mb-8">
-              <h2 className="text-xl font-bold truncate">{currentTrack.title}</h2>
-              <p className="text-gray-400">{currentTrack.artist}</p>
+            <div className="space-y-1 mb-8 text-center">
+              <h2 className="text-2xl font-bold truncate px-2">{currentTrack.title}</h2>
+              <p className="text-gray-400 text-lg">{currentTrack.artist}</p>
             </div>
 
-            {/* Progress Bar */}
-            <div className="w-full bg-gray-700 h-1 rounded-full mb-8">
+            <div className="w-full bg-white/10 h-1.5 rounded-full mb-10 overflow-hidden">
               <div 
-                className="bg-white h-1 rounded-full relative" 
+                className="bg-white h-full transition-all duration-300" 
                 style={{ width: `${progress}%` }}
-              >
-                <div className="absolute right-0 -top-1 w-3 h-3 bg-white rounded-full shadow" />
-              </div>
+              />
             </div>
 
-            {/* Controls */}
-            <div className="flex justify-between items-center px-4">
-              <button className="text-gray-400 hover:text-white"><SkipBack size={28} /></button>
+            <div className="flex justify-around items-center">
+              <button className="text-gray-400 hover:text-white transition-colors"><SkipBack size={32} fill="currentColor" /></button>
               <button 
                 onClick={togglePlay}
-                className="w-16 h-16 bg-white text-black rounded-full flex items-center justify-center hover:scale-105 transition-transform"
+                className="w-20 h-20 bg-white text-black rounded-full flex items-center justify-center hover:scale-105 active:scale-95 transition-all shadow-xl"
               >
-                {isPlaying ? <Pause size={32} fill="black" /> : <Play size={32} fill="black" className="ml-1" />}
+                {isPlaying ? <Pause size={40} fill="black" /> : <Play size={40} fill="black" className="ml-1" />}
               </button>
-              <button className="text-gray-400 hover:text-white"><SkipForward size={28} /></button>
+              <button className="text-gray-400 hover:text-white transition-colors"><SkipForward size={32} fill="currentColor" /></button>
             </div>
           </div>
         )}
 
-        {/* Elemento de Audio Invisible */}
         <audio
           ref={audioRef}
           src={currentTrack?.streamUrl}
           onTimeUpdate={handleTimeUpdate}
-          onPlay={() => setIsPlaying(true)}
-          onPause={() => setIsPlaying(false)}
           onEnded={() => setIsPlaying(false)}
           crossOrigin="anonymous"
-          preload="auto"
+          preload="metadata"
         />
         
-        {!currentTrack && !loading && (
-          <div className="flex flex-col items-center justify-center py-20 text-gray-500">
-            <Music2 size={64} className="mb-4 opacity-20" />
-            <p>Introduce un ID para empezar</p>
-          </div>
-        )}
-
         {loading && (
-          <div className="flex justify-center py-20">
-            <div className="animate-spin rounded-full h-8 w-8 border-t-2 border-red-600"></div>
+          <div className="text-center py-10">
+            <div className="inline-block animate-spin rounded-full h-8 w-8 border-t-2 border-red-600"></div>
+            <p className="mt-4 text-gray-500">Invocando a Symphony...</p>
           </div>
         )}
       </div>
