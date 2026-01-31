@@ -5,27 +5,49 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   if (!videoId) return res.status(400).json({ error: "Falta el ID" });
 
   try {
-    // Usamos el cliente WEB_REMIX que es el de YouTube Music Web
-    const response = await fetch(`https://music.youtube.com/youtubei/v1/player?key=AIzaSyAO_Sshmto67S60V6wA`, {
+    const response = await fetch(`https://www.youtube.com/youtubei/v1/player?key=AIzaSyAO_Sshmto67S60V6wA`, {
       method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'User-Agent': 'Mozilla/5.0 (Chromecast; Google TV) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+        'Referer': 'https://www.youtube.com/tv'
+      },
       body: JSON.stringify({
         context: {
-          client: { clientName: "WEB_REMIX", clientVersion: "1.20240125.01.00" }
+          client: {
+            clientName: "TVHTML5_SIMPLY_EMBEDDED",
+            clientVersion: "2.20231201.03.00",
+            platform: "TV",
+            hl: "es-ES"
+          }
         },
-        videoId: videoId
+        videoId: videoId,
+        playbackContext: {
+          contentPlaybackContext: {
+            signatureTimestamp: 19742
+          }
+        }
       })
     });
 
     const data = await response.json();
     
-    // Filtrar para obtener la mejor calidad de audio
+    // Si el video tiene restricciones de edad o es música "Premium", este cliente lo dirá aquí
+    if (data.playabilityStatus?.status !== "OK") {
+      return res.status(403).json({ 
+        error: "Video no disponible", 
+        reason: data.playabilityStatus?.reason 
+      });
+    }
+
     const formats = data.streamingData?.adaptiveFormats || [];
+    // Buscamos el itag 140 (Audio M4A) que suele venir libre en TV
     const audioFormat = formats.find((f: any) => f.itag === 140) || formats.find((f: any) => f.mimeType.includes('audio'));
 
     if (!audioFormat || !audioFormat.url) {
       return res.status(403).json({ 
-        error: "YouTube bloqueó el enlace directo",
-        reason: "Requiere descifrado de firma (Signature)" 
+        error: "Firma requerida incluso en TV",
+        suggestion: "Usa un ID de una canción normal, no un mix" 
       });
     }
 
@@ -33,10 +55,10 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       title: data.videoDetails.title,
       artist: data.videoDetails.author,
       thumbnail: `https://i.ytimg.com/vi/${videoId}/maxresdefault.jpg`,
-      streamUrl: audioFormat.url // Enlace directo al audio
+      streamUrl: audioFormat.url
     });
 
   } catch (e) {
-    res.status(500).json({ error: "Error de servidor" });
+    res.status(500).json({ error: "Error de servidor", details: String(e) });
   }
 }
