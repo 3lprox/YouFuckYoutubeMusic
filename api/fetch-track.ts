@@ -5,26 +5,30 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   if (!videoId) return res.status(400).json({ error: "Falta el ID" });
 
   try {
-    const response = await fetch(`https://www.youtube.com/youtubei/v1/player?key=AIzaSyAO_Sshmto67S60V6wA`, {
+    const response = await fetch(`https://music.youtube.com/youtubei/v1/player?key=AIzaSyAO_Sshmto67S60V6wA`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'User-Agent': 'Mozilla/5.0 (Chromecast; Google TV) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-        'Referer': 'https://www.youtube.com/tv'
+        'User-Agent': 'com.google.ios.youtubemusic/6.41.2 (iPhone16,2; U; CPU iOS 17_5 like Mac OS X; es_ES)',
+        'X-Youtube-Client-Name': '26',
+        'X-Youtube-Client-Version': '6.41.2'
       },
       body: JSON.stringify({
         context: {
           client: {
-            clientName: "TVHTML5_SIMPLY_EMBEDDED",
-            clientVersion: "2.20231201.03.00",
-            platform: "TV",
-            hl: "es-ES"
+            clientName: "IOS_MUSIC",
+            clientVersion: "6.41.2",
+            deviceModel: "iPhone16,2",
+            osName: "iOS",
+            osVersion: "17.5.0",
+            hl: "es-ES",
+            gl: "ES"
           }
         },
         videoId: videoId,
         playbackContext: {
           contentPlaybackContext: {
-            signatureTimestamp: 19742
+            signatureTimestamp: 19742 // Timestamp actual para el player de música
           }
         }
       })
@@ -32,22 +36,23 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
     const data = await response.json();
     
-    // Si el video tiene restricciones de edad o es música "Premium", este cliente lo dirá aquí
-    if (data.playabilityStatus?.status !== "OK") {
-      return res.status(403).json({ 
-        error: "Video no disponible", 
-        reason: data.playabilityStatus?.reason 
-      });
+    // Si sigue saliendo "No disponible", probamos a buscar los datos en otra parte del JSON
+    const playability = data.playabilityStatus;
+    if (playability?.status !== "OK") {
+       return res.status(403).json({ 
+         error: "Restricción de YouTube", 
+         reason: playability?.reason || "Contenido protegido"
+       });
     }
 
     const formats = data.streamingData?.adaptiveFormats || [];
-    // Buscamos el itag 140 (Audio M4A) que suele venir libre en TV
+    // Priorizamos itag 140 (audio puro)
     const audioFormat = formats.find((f: any) => f.itag === 140) || formats.find((f: any) => f.mimeType.includes('audio'));
 
-    if (!audioFormat || !audioFormat.url) {
+    if (!audioFormat?.url) {
       return res.status(403).json({ 
-        error: "Firma requerida incluso en TV",
-        suggestion: "Usa un ID de una canción normal, no un mix" 
+        error: "Firma requerida",
+        details: "YouTube detectó el servidor" 
       });
     }
 
