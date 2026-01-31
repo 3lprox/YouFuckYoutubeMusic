@@ -14,31 +14,29 @@ function App() {
   const [isPlaying, setIsPlaying] = useState(false);
   const [loading, setLoading] = useState(false);
   const [progress, setProgress] = useState(0);
-  const [audioError, setAudioError] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
   const audioRef = useRef<HTMLAudioElement>(null);
 
   const fetchTrack = async () => {
     if (!query) return;
     setLoading(true);
-    setAudioError(null);
+    setError(null);
     try {
-      // Cambiamos a la URL de tu API en Vercel
       const res = await fetch(`/api/fetch-track?videoId=${query}`);
       const data = await res.json();
       
       if (data.streamUrl) {
         setCurrentTrack(data);
         setIsPlaying(false);
-        // Resetear el elemento de audio para el nuevo stream
         if (audioRef.current) {
           audioRef.current.pause();
           audioRef.current.load();
         }
       } else {
-        setAudioError("No se pudo obtener el enlace de audio");
+        setError(data.error || "Error al obtener la pista");
       }
-    } catch (error) {
-      setAudioError("Error de conexión con el servidor");
+    } catch (err) {
+      setError("Error de red en Symphony");
     } finally {
       setLoading(false);
     }
@@ -48,17 +46,16 @@ function App() {
     if (audioRef.current && currentTrack) {
       if (isPlaying) {
         audioRef.current.pause();
-        setIsPlaying(false);
       } else {
-        setAudioError(null);
-        // Intentar reproducir y capturar errores de políticas de navegador
-        audioRef.current.play()
-          .then(() => setIsPlaying(true))
-          .catch(err => {
-            console.error("Playback error:", err);
-            setAudioError("El navegador bloqueó el audio. Intenta pulsar Play de nuevo.");
+        const playPromise = audioRef.current.play();
+        if (playPromise !== undefined) {
+          playPromise.catch(err => {
+            console.error("Error de reproducción:", err);
+            setError("Toca de nuevo para reproducir");
           });
+        }
       }
+      setIsPlaying(!isPlaying);
     }
   };
 
@@ -69,78 +66,67 @@ function App() {
     }
   };
 
-  // Efecto para debug de errores de audio
-  useEffect(() => {
-    const audio = audioRef.current;
-    if (!audio) return;
-
-    const handleError = () => {
-      console.error("Audio Element Error:", audio.error);
-      setAudioError("Error al cargar el stream. El servidor de audio podría estar saturado.");
-      setIsPlaying(false);
-    };
-
-    audio.addEventListener('error', handleError);
-    return () => audio.removeEventListener('error', handleError);
-  }, [currentTrack]);
-
   return (
-    <div className="min-h-screen bg-[#0f0f0f] text-white flex flex-col items-center p-6 font-sans">
-      <div className="w-full max-w-md mt-8 space-y-6">
-        <h1 className="text-3xl font-bold text-center tracking-tight text-red-600">SYMPHONY</h1>
+    <div className="min-h-screen bg-[#0a0a0a] text-white flex flex-col items-center p-6 font-sans">
+      <div className="w-full max-w-md mt-6 space-y-6">
+        <h1 className="text-4xl font-black text-center tracking-tighter text-red-600 italic">SYMPHONY</h1>
         
+        {/* Buscador */}
         <div className="relative flex items-center">
           <input
             type="text"
-            placeholder="ID de YouTube (ej: j6YpC8I2T8k)"
-            className="w-full bg-[#212121] border-none rounded-full py-4 px-6 pr-12 focus:ring-2 focus:ring-red-600 outline-none transition-all"
+            placeholder="Introduce ID de YouTube..."
+            className="w-full bg-[#1a1a1a] border border-white/5 rounded-2xl py-4 px-6 focus:ring-2 focus:ring-red-600 outline-none transition-all shadow-xl"
             value={query}
             onChange={(e) => setQuery(e.target.value)}
             onKeyDown={(e) => e.key === 'Enter' && fetchTrack()}
           />
           <button 
             onClick={fetchTrack}
-            disabled={loading}
-            className="absolute right-2 p-2.5 bg-red-600 rounded-full hover:bg-red-700 transition-colors disabled:opacity-50"
+            className="absolute right-2 p-2.5 bg-red-600 rounded-xl hover:bg-red-700 transition-all active:scale-90 shadow-lg"
           >
             <Search size={20} />
           </button>
         </div>
 
-        {audioError && (
-          <div className="bg-red-900/20 border border-red-900/50 p-3 rounded-xl flex items-center gap-3 text-red-400 text-sm">
-            <AlertCircle size={18} />
-            <p>{audioError}</p>
+        {/* Mensajes de Error */}
+        {error && (
+          <div className="bg-red-900/20 border border-red-500/30 p-4 rounded-2xl flex items-center gap-3 text-red-400">
+            <AlertCircle size={20} />
+            <p className="text-sm font-medium">{error}</p>
           </div>
         )}
 
+        {/* Reproductor principal */}
         {currentTrack && (
-          <div className="bg-[#1e1e1e] rounded-[2.5rem] p-8 shadow-2xl">
-            <div className="aspect-square w-full mb-8 overflow-hidden rounded-3xl shadow-2xl border border-white/5">
+          <div className="bg-[#141414] rounded-[3rem] p-8 shadow-2xl border border-white/5 animate-in fade-in slide-in-from-bottom-4 duration-500">
+            <div className="aspect-square w-full mb-8 overflow-hidden rounded-[2rem] shadow-2xl">
               <img 
                 src={currentTrack.thumbnail} 
                 alt="Album Art" 
-                className="w-full h-full object-cover"
+                className="w-full h-full object-cover transition-transform duration-700 hover:scale-110"
               />
             </div>
             
-            <div className="space-y-1 mb-8 text-center">
-              <h2 className="text-2xl font-bold truncate px-2">{currentTrack.title}</h2>
-              <p className="text-gray-400 text-lg">{currentTrack.artist}</p>
+            <div className="space-y-2 mb-8 text-center">
+              <h2 className="text-2xl font-bold truncate tracking-tight">{currentTrack.title}</h2>
+              <p className="text-gray-500 text-lg font-medium">{currentTrack.artist}</p>
             </div>
 
-            <div className="w-full bg-white/10 h-1.5 rounded-full mb-10 overflow-hidden">
+            {/* Barra de Progreso */}
+            <div className="w-full bg-white/5 h-1.5 rounded-full mb-10 overflow-hidden">
               <div 
-                className="bg-white h-full transition-all duration-300" 
+                className="bg-red-600 h-full transition-all duration-150" 
                 style={{ width: `${progress}%` }}
               />
             </div>
 
-            <div className="flex justify-around items-center">
-              <button className="text-gray-400 hover:text-white transition-colors"><SkipBack size={32} fill="currentColor" /></button>
+            {/* Controles Estilo Symphony */}
+            <div className="flex justify-between items-center px-4">
+              <button className="text-gray-500 hover:text-white transition-colors"><SkipBack size={32} fill="currentColor" /></button>
               <button 
                 onClick={togglePlay}
-                className="w-20 h-20 bg-white text-black rounded-full flex items-center justify-center hover:scale-105 active:scale-95 transition-all shadow-xl"
+                className="w-20 h-20 bg-white text-black rounded-full flex items-center justify-center hover:scale-105 active:scale-95 transition-all shadow-2xl"
               >
                 {isPlaying ? <Pause size={40} fill="black" /> : <Play size={40} fill="black" className="ml-1" />}
               </button>
@@ -149,19 +135,28 @@ function App() {
           </div>
         )}
 
+        {/* Audio Engine */}
         <audio
           ref={audioRef}
           src={currentTrack?.streamUrl}
           onTimeUpdate={handleTimeUpdate}
+          onPlay={() => setIsPlaying(true)}
+          onPause={() => setIsPlaying(false)}
           onEnded={() => setIsPlaying(false)}
-          crossOrigin="anonymous"
-          preload="metadata"
+          preload="auto"
         />
-        
+
         {loading && (
-          <div className="text-center py-10">
-            <div className="inline-block animate-spin rounded-full h-8 w-8 border-t-2 border-red-600"></div>
-            <p className="mt-4 text-gray-500">Invocando a Symphony...</p>
+          <div className="text-center py-10 flex flex-col items-center">
+            <div className="animate-spin rounded-full h-10 w-10 border-t-2 border-b-2 border-red-600 mb-4"></div>
+            <p className="text-gray-500 animate-pulse">Sincronizando con Symphony...</p>
+          </div>
+        )}
+
+        {!currentTrack && !loading && (
+          <div className="flex flex-col items-center justify-center py-20 text-gray-700">
+            <Music2 size={80} className="mb-4 opacity-10" />
+            <p className="text-sm uppercase tracking-widest font-bold opacity-30">Waiting for Signal</p>
           </div>
         )}
       </div>
