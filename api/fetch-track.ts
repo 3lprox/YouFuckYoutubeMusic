@@ -1,11 +1,28 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
-  const { videoId } = req.query;
-  if (!videoId) return res.status(400).json({ error: "Falta el ID" });
+  const { videoId, q } = req.query;
 
-  // Lista de 20 instancias de Invidious
-  const invidiousInstances = [
+  // Si se busca por texto (para la lista de resultados)
+  if (q) {
+    try {
+      const searchRes = await fetch(`https://pipedapi.kavin.rocks/search?q=${q}&filter=videos`);
+      const searchData = await searchRes.json();
+      return res.status(200).json(searchData.items.map((item: any) => ({
+        videoId: item.url.split("v=")[1],
+        title: item.title,
+        artist: item.uploaderName,
+        thumbnail: item.thumbnail
+      })));
+    } catch (e) {
+      return res.status(500).json({ error: "Error en búsqueda" });
+    }
+  }
+
+  // Si se busca un stream específico (Motor de 45 nodos)
+  if (!videoId) return res.status(400).json({ error: "Falta ID" });
+
+  const invidious = [
     "https://inv.tux.pizza", "https://iv.melmac.space", "https://invidious.perennialte.ch",
     "https://invidious.flokinet.to", "https://invidious.privacydev.net", "https://iv.ggtyler.dev",
     "https://invidious.lunar.icu", "https://inv.nand.sh", "https://invidious.projectsegfau.lt",
@@ -15,8 +32,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     "https://invidious.skrep.eu", "https://invidious.stemy.me"
   ];
 
-  // Lista de 25 instancias de Piped
-  const pipedInstances = [
+  const pipeds = [
     "https://pipedapi.kavin.rocks", "https://api.piped.victr.me", "https://piped-api.garudalinux.org",
     "https://pipedapi.drgns.space", "https://pipedapi.astartes.nl", "https://api-piped.mha.fi",
     "https://pipedapi.berrytube.tv", "https://pipedapi.pablo.casa", "https://pipedapi.moomoo.me",
@@ -28,45 +44,24 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     "https://pipedapi.vern.cc"
   ];
 
-  // Mezclamos y aleatorizamos para no saturar siempre los mismos
   const allNodes = [
-    ...invidiousInstances.map(url => ({ url: `${url}/api/v1/videos/${videoId}`, type: 'invidious' })),
-    ...pipedInstances.map(url => ({ url: `${url}/streams/${videoId}`, type: 'piped' }))
+    ...invidious.map(url => ({ url: `${url}/api/v1/videos/${videoId}`, type: 'inv' })),
+    ...pipeds.map(url => ({ url: `${url}/streams/${videoId}`, type: 'piped' }))
   ].sort(() => Math.random() - 0.5);
 
   for (const node of allNodes) {
     try {
-      const response = await fetch(node.url, { signal: AbortSignal.timeout(3500) });
+      const response = await fetch(node.url, { signal: AbortSignal.timeout(3000) });
       if (!response.ok) continue;
-
       const data = await response.json();
-      let audioStream;
-
-      if (node.type === 'invidious') {
-        audioStream = data.adaptiveFormats.find((f: any) => f.container === "m4a" || f.type.includes("audio/mp4"));
-        if (audioStream) {
-          return res.status(200).json({
-            title: data.title,
-            artist: data.author,
-            thumbnail: data.videoThumbnails[0].url,
-            streamUrl: audioStream.url
-          });
-        }
+      let stream;
+      if (node.type === 'inv') {
+        stream = data.adaptiveFormats.find((f: any) => f.container === "m4a" || f.type.includes("audio/mp4"));
       } else {
-        audioStream = data.audioStreams.find((s: any) => s.format === "M4A" || s.mimeType.includes("audio/mp4"));
-        if (audioStream) {
-          return res.status(200).json({
-            title: data.title,
-            artist: data.uploader,
-            thumbnail: data.thumbnailUrl,
-            streamUrl: audioStream.url
-          });
-        }
+        stream = data.audioStreams.find((s: any) => s.format === "M4A" || s.mimeType.includes("audio/mp4"));
       }
-    } catch (e) {
-      continue;
-    }
+      if (stream) return res.status(200).json({ streamUrl: stream.url, title: data.title, artist: data.author || data.uploader, thumbnail: data.videoThumbnails?.[0]?.url || data.thumbnailUrl });
+    } catch (e) { continue; }
   }
-
-  res.status(500).json({ error: "Symphony Nodes Exhausted", details: "Ninguno de los 45 nodos respondió." });
+  res.status(500).json({ error: "Nodos agotados" });
 }
