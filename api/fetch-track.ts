@@ -3,7 +3,7 @@ import type { VercelRequest, VercelResponse } from '@vercel/node';
 const INVIDIOUS_DOMAINS = [
   "inv.tux.pizza", "iv.melmac.space", "invidious.perennialte.ch", "yewtu.be", 
   "inv.nand.sh", "invidious.lunar.icu", "iv.ggtyler.dev", "invidious.projectsegfau.lt", 
-  "invidious.privacydev.net", "invidious.flokinet.to"
+  "invidious.privacydev.net", "invidious.flokinet.to", "invidio.xamh.de", "inv.riverside.rocks"
 ];
 
 const PIPED_DOMAINS = [
@@ -32,22 +32,23 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
   if (!videoId) return res.status(400).json({ error: "Missing videoId" });
 
-  const nodes: { url: string; type: 'inv' | 'piped' }[] = [];
-  for (let i = 0; i < 250; i++) {
-    nodes.push({ 
-      url: `https://${INVIDIOUS_DOMAINS[i % INVIDIOUS_DOMAINS.length]}/api/v1/videos/${videoId}`, 
-      type: 'inv' 
-    });
-    nodes.push({ 
-      url: `https://${PIPED_DOMAINS[i % PIPED_DOMAINS.length]}/streams/${videoId}`, 
-      type: 'piped' 
-    });
-  }
-
-  const shuffled = nodes.sort(() => Math.random() - 0.5);
+  const generateNodes = () => {
+    const list: { url: string; type: 'inv' | 'piped' }[] = [];
+    for (let i = 0; i < 250; i++) {
+      list.push({ 
+        url: `https://${INVIDIOUS_DOMAINS[i % INVIDIOUS_DOMAINS.length]}/api/v1/videos/${videoId}`, 
+        type: 'inv' 
+      });
+      list.push({ 
+        url: `https://${PIPED_DOMAINS[i % PIPED_DOMAINS.length]}/streams/${videoId}`, 
+        type: 'piped' 
+      });
+    }
+    return list.sort(() => Math.random() - 0.5);
+  };
 
   const requestNode = async (node: any) => {
-    const response = await fetch(node.url, { signal: AbortSignal.timeout(4000) });
+    const response = await fetch(node.url, { signal: AbortSignal.timeout(3500) });
     if (!response.ok) throw new Error();
     const data = await response.json();
     
@@ -67,10 +68,17 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     };
   };
 
+  const allNodes = generateNodes();
+  
   try {
-    const result = await Promise.any(shuffled.slice(0, 15).map(n => requestNode(n)));
+    const result = await Promise.any(allNodes.slice(0, 12).map(n => requestNode(n)));
     return res.status(200).json(result);
   } catch (e) {
-    return res.status(500).json({ error: "Symphony Nodes Exhausted" });
+    try {
+      const secondWave = await Promise.any(allNodes.slice(12, 24).map(n => requestNode(n)));
+      return res.status(200).json(secondWave);
+    } catch (err) {
+      return res.status(500).json({ error: "Symphony Nodes Exhausted", attempts: 24 });
+    }
   }
 }
