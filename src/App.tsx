@@ -1,165 +1,162 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { Play, Pause, SkipForward, SkipBack, Search, Music2, AlertCircle } from 'lucide-react';
-
-interface Track {
-  title: string;
-  artist: string;
-  thumbnail: string;
-  streamUrl: string;
-}
+import { Play, Pause, Search, Music2, Loader2, Heart, ListMusic, ChevronDown } from 'lucide-react';
 
 function App() {
   const [query, setQuery] = useState('');
-  const [currentTrack, setCurrentTrack] = useState<Track | null>(null);
+  const [results, setResults] = useState([]);
+  const [currentTrack, setCurrentTrack] = useState<any>(null);
   const [isPlaying, setIsPlaying] = useState(false);
   const [loading, setLoading] = useState(false);
   const [progress, setProgress] = useState(0);
-  const [error, setError] = useState<string | null>(null);
+  const [isPlayerOpen, setIsPlayerOpen] = useState(false);
   const audioRef = useRef<HTMLAudioElement>(null);
 
-  const fetchTrack = async () => {
+  const searchTracks = async () => {
     if (!query) return;
     setLoading(true);
-    setError(null);
     try {
-      const res = await fetch(`/api/fetch-track?videoId=${query}`);
+      const res = await fetch(`/api/fetch-track?q=${encodeURIComponent(query)}`);
       const data = await res.json();
-      
+      setResults(data);
+    } catch (err) { console.error(err); }
+    finally { setLoading(false); }
+  };
+
+  const selectTrack = async (track: any) => {
+    setLoading(true);
+    try {
+      const res = await fetch(`/api/fetch-track?videoId=${track.videoId}`);
+      const data = await res.json();
       if (data.streamUrl) {
         setCurrentTrack(data);
+        setIsPlayerOpen(true);
         setIsPlaying(false);
-        if (audioRef.current) {
-          audioRef.current.pause();
-          audioRef.current.load();
-        }
-      } else {
-        setError(data.error || "Error al obtener la pista");
+        setTimeout(() => togglePlay(), 500);
       }
-    } catch (err) {
-      setError("Error de red en Symphony");
-    } finally {
-      setLoading(false);
-    }
+    } catch (err) { alert("Error al cargar stream"); }
+    finally { setLoading(false); }
   };
 
   const togglePlay = () => {
     if (audioRef.current && currentTrack) {
-      if (isPlaying) {
-        audioRef.current.pause();
-      } else {
-        const playPromise = audioRef.current.play();
-        if (playPromise !== undefined) {
-          playPromise.catch(err => {
-            console.error("Error de reproducción:", err);
-            setError("Toca de nuevo para reproducir");
-          });
-        }
-      }
+      if (isPlaying) { audioRef.current.pause(); } 
+      else { audioRef.current.play().catch(() => {}); }
       setIsPlaying(!isPlaying);
     }
   };
 
-  const handleTimeUpdate = () => {
-    if (audioRef.current) {
-      const p = (audioRef.current.currentTime / audioRef.current.duration) * 100;
-      setProgress(p || 0);
-    }
-  };
-
   return (
-    <div className="min-h-screen bg-[#0a0a0a] text-white flex flex-col items-center p-6 font-sans">
-      <div className="w-full max-w-md mt-6 space-y-6">
-        <h1 className="text-4xl font-black text-center tracking-tighter text-red-600 italic">SYMPHONY</h1>
-        
-        {/* Buscador */}
-        <div className="relative flex items-center">
-          <input
-            type="text"
-            placeholder="Introduce ID de YouTube..."
-            className="w-full bg-[#1a1a1a] border border-white/5 rounded-2xl py-4 px-6 focus:ring-2 focus:ring-red-600 outline-none transition-all shadow-xl"
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-            onKeyDown={(e) => e.key === 'Enter' && fetchTrack()}
-          />
-          <button 
-            onClick={fetchTrack}
-            className="absolute right-2 p-2.5 bg-red-600 rounded-xl hover:bg-red-700 transition-all active:scale-90 shadow-lg"
-          >
-            <Search size={20} />
+    <div className="min-h-screen bg-[#0f0f0f] text-[#e3e3e3] font-sans selection:bg-red-500/30">
+      {/* Search Header */}
+      <header className="sticky top-0 z-30 bg-[#0f0f0f]/80 backdrop-blur-xl p-4 md:px-8">
+        <div className="max-w-5xl mx-auto flex items-center gap-4">
+          <h1 className="hidden md:block text-2xl font-black text-red-600 italic mr-4">SYMPHONY</h1>
+          <div className="relative flex-1 group">
+            <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-500 group-focus-within:text-red-500 transition-colors" size={20} />
+            <input
+              type="text"
+              placeholder="Buscar canciones, artistas..."
+              className="w-full bg-[#1e1e1e] border-none rounded-2xl py-3.5 px-12 focus:ring-2 focus:ring-red-600 outline-none transition-all text-lg shadow-inner"
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              onKeyDown={(e) => e.key === 'Enter' && searchTracks()}
+            />
+          </div>
+          <button onClick={searchTracks} className="md:hidden p-3 bg-red-600 rounded-2xl active:scale-95 transition-transform shadow-lg shadow-red-600/20">
+            <Search size={24} />
           </button>
         </div>
+      </header>
 
-        {/* Mensajes de Error */}
-        {error && (
-          <div className="bg-red-900/20 border border-red-500/30 p-4 rounded-2xl flex items-center gap-3 text-red-400">
-            <AlertCircle size={20} />
-            <p className="text-sm font-medium">{error}</p>
+      {/* Main Content */}
+      <main className="max-w-5xl mx-auto p-4 pb-32">
+        {loading && !currentTrack && (
+          <div className="flex flex-col items-center justify-center py-20 opacity-50">
+            <Loader2 className="animate-spin mb-4" size={40} />
+            <p className="font-medium tracking-widest uppercase text-xs">Sincronizando Symphony...</p>
           </div>
         )}
 
-        {/* Reproductor principal */}
-        {currentTrack && (
-          <div className="bg-[#141414] rounded-[3rem] p-8 shadow-2xl border border-white/5 animate-in fade-in slide-in-from-bottom-4 duration-500">
-            <div className="aspect-square w-full mb-8 overflow-hidden rounded-[2rem] shadow-2xl">
-              <img 
-                src={currentTrack.thumbnail} 
-                alt="Album Art" 
-                className="w-full h-full object-cover transition-transform duration-700 hover:scale-110"
-              />
+        {/* Results Grid */}
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+          {results.map((track: any, i) => (
+            <div 
+              key={i} 
+              onClick={() => selectTrack(track)}
+              className="flex items-center gap-4 p-3 bg-[#1e1e1e]/40 hover:bg-[#2a2a2a] rounded-2xl cursor-pointer transition-all active:scale-[0.98] group border border-white/5"
+            >
+              <img src={track.thumbnail} className="w-16 h-16 rounded-xl object-cover shadow-lg" alt="" />
+              <div className="flex-1 min-w-0">
+                <h3 className="font-bold truncate text-sm md:text-base">{track.title}</h3>
+                <p className="text-gray-500 text-xs truncate uppercase tracking-tighter">{track.artist}</p>
+              </div>
+              <div className="opacity-0 group-hover:opacity-100 p-2 bg-red-600 rounded-full transition-opacity">
+                <Play size={16} fill="white" />
+              </div>
             </div>
+          ))}
+        </div>
+
+        {!results.length && !loading && (
+          <div className="text-center py-32 opacity-20">
+            <Music2 size={80} className="mx-auto mb-4" />
+            <p className="text-xl font-black italic uppercase tracking-widest">Symphony Engine Ready</p>
+          </div>
+        )}
+      </main>
+
+      {/* Mini Player / Bottom Sheet (Material Design 3 Style) */}
+      {currentTrack && (
+        <div className={`fixed bottom-0 left-0 right-0 z-50 transition-all duration-500 ease-in-out ${isPlayerOpen ? 'h-full translate-y-0' : 'h-20 translate-y-0'}`}>
+          <div className={`h-full bg-[#121212] flex flex-col shadow-2xl ${!isPlayerOpen && 'border-t border-white/10'}`}>
             
-            <div className="space-y-2 mb-8 text-center">
-              <h2 className="text-2xl font-bold truncate tracking-tight">{currentTrack.title}</h2>
-              <p className="text-gray-500 text-lg font-medium">{currentTrack.artist}</p>
-            </div>
-
-            {/* Barra de Progreso */}
-            <div className="w-full bg-white/5 h-1.5 rounded-full mb-10 overflow-hidden">
-              <div 
-                className="bg-red-600 h-full transition-all duration-150" 
-                style={{ width: `${progress}%` }}
-              />
-            </div>
-
-            {/* Controles Estilo Symphony */}
-            <div className="flex justify-between items-center px-4">
-              <button className="text-gray-500 hover:text-white transition-colors"><SkipBack size={32} fill="currentColor" /></button>
-              <button 
-                onClick={togglePlay}
-                className="w-20 h-20 bg-white text-black rounded-full flex items-center justify-center hover:scale-105 active:scale-95 transition-all shadow-2xl"
-              >
-                {isPlaying ? <Pause size={40} fill="black" /> : <Play size={40} fill="black" className="ml-1" />}
+            {/* Control superior para cerrar */}
+            {isPlayerOpen && (
+              <button onClick={() => setIsPlayerOpen(false)} className="p-6 self-start text-gray-500 hover:text-white transition-colors">
+                <ChevronDown size={32} />
               </button>
-              <button className="text-gray-400 hover:text-white transition-colors"><SkipForward size={32} fill="currentColor" /></button>
+            )}
+
+            {/* Layout dinámico */}
+            <div className={`flex flex-1 max-w-5xl mx-auto w-full px-6 items-center ${isPlayerOpen ? 'flex-col justify-center' : 'flex-row justify-between h-20'}`}>
+              
+              {/* Imagen/Cover */}
+              <div className={`overflow-hidden shadow-2xl transition-all duration-500 ${isPlayerOpen ? 'w-80 h-80 rounded-[3rem] mb-12 border border-white/10' : 'w-12 h-12 rounded-lg'}`}>
+                <img src={currentTrack.thumbnail} className="w-full h-full object-cover" alt="" />
+              </div>
+
+              {/* Títulos */}
+              <div className={`transition-all duration-500 ${isPlayerOpen ? 'text-center mb-10' : 'flex-1 ml-4 min-w-0'}`}>
+                <h2 className={`font-black truncate ${isPlayerOpen ? 'text-3xl' : 'text-sm'}`}>{currentTrack.title}</h2>
+                <p className={`text-red-600 font-bold uppercase tracking-widest ${isPlayerOpen ? 'text-sm mt-2' : 'text-[10px]'}`}>{currentTrack.artist}</p>
+              </div>
+
+              {/* Botón Play/Pause */}
+              <div className={`flex items-center gap-6 ${isPlayerOpen ? 'scale-150 mt-10' : ''}`}>
+                <button onClick={(e) => { e.stopPropagation(); togglePlay(); }} className="w-12 h-12 bg-white text-black rounded-full flex items-center justify-center hover:scale-110 active:scale-95 transition-all shadow-xl">
+                  {isPlaying ? <Pause size={24} fill="black" /> : <Play size={24} fill="black" className="ml-0.5" />}
+                </button>
+              </div>
+            </div>
+
+            {/* Barra de progreso inferior (siempre visible) */}
+            <div className="w-full bg-white/5 h-1">
+              <div className="bg-red-600 h-full transition-all duration-300" style={{ width: `${progress}%` }} />
             </div>
           </div>
-        )}
+        </div>
+      )}
 
-        {/* Audio Engine */}
-        <audio
-          ref={audioRef}
-          src={currentTrack?.streamUrl}
-          onTimeUpdate={handleTimeUpdate}
-          onPlay={() => setIsPlaying(true)}
-          onPause={() => setIsPlaying(false)}
-          onEnded={() => setIsPlaying(false)}
-          preload="auto"
-        />
-
-        {loading && (
-          <div className="text-center py-10 flex flex-col items-center">
-            <div className="animate-spin rounded-full h-10 w-10 border-t-2 border-b-2 border-red-600 mb-4"></div>
-            <p className="text-gray-500 animate-pulse">Sincronizando con Symphony...</p>
-          </div>
-        )}
-
-        {!currentTrack && !loading && (
-          <div className="flex flex-col items-center justify-center py-20 text-gray-700">
-            <Music2 size={80} className="mb-4 opacity-10" />
-            <p className="text-sm uppercase tracking-widest font-bold opacity-30">Waiting for Signal</p>
-          </div>
-        )}
-      </div>
+      {/* Audio Engine */}
+      <audio
+        ref={audioRef}
+        src={currentTrack?.streamUrl}
+        onTimeUpdate={() => setProgress((audioRef.current!.currentTime / audioRef.current!.duration) * 100)}
+        onEnded={() => setIsPlaying(false)}
+        onPlay={() => setIsPlaying(true)}
+        onPause={() => setIsPlaying(false)}
+        preload="auto"
+      />
     </div>
   );
 }
