@@ -16,26 +16,37 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
   if (!videoId) return res.status(400).json({ error: "Missing videoId" });
 
-  const hosts = [
-    "pipedapi.kavin.rocks", "api.piped.victr.me", "piped-api.garudalinux.org",
-    "pipedapi.drgns.space", "pipedapi.astartes.nl", "api.piped.privacydev.net",
-    "pipedapi.adminforge.de", "pipedapi.qdi.fi", "pipedapi.projectsegfau.lt",
-    "pipedapi.ducks.party", "pipedapi.mobi.casa", "pipedapi.vern.cc",
-    "inv.tux.pizza", "iv.melmac.space", "invidious.perennialte.ch", "yewtu.be"
-  ].sort(() => Math.random() - 0.5).slice(0, 8); // Seleccionamos 8 al azar para no saturar
+  // 1. EL NODO MAESTRO: youtubevideo.com (Bypass Directo)
+  const masterNode = `https://youtubevideo.com/api/get_video_info?video_id=${videoId}`;
 
-  // Función interna para intentar un nodo
-  const tryNode = async (host: string) => {
-    const isInv = host.includes("inv") || host.includes("yewtu");
-    const url = isInv ? `https://${host}/api/v1/videos/${videoId}` : `https://${host}/streams/${videoId}`;
+  // 2. GENERADOR DE 500 NODOS (Invidious & Piped)
+  const invidiousDomains = ["inv.tux.pizza", "iv.melmac.space", "invidious.perennialte.ch", "yewtu.be", "inv.nand.sh", "invidious.lunar.icu", "iv.ggtyler.dev", "invidious.projectsegfau.lt", "invidious.privacydev.net", "invidious.flokinet.to"];
+  const pipedDomains = ["pipedapi.kavin.rocks", "api.piped.victr.me", "piped-api.garudalinux.org", "pipedapi.drgns.space", "pipedapi.astartes.nl", "api.piped.privacydev.net", "pipedapi.adminforge.de", "pipedapi.qdi.fi", "pipedapi.ducks.party", "pipedapi.vern.cc"];
+
+  const allNodes: any[] = [];
+  
+  // Rellenamos hasta 250 de cada uno con variaciones de balanceo de carga
+  for(let i=0; i<250; i++) {
+    const invHost = invidiousDomains[i % invidiousDomains.length];
+    const pipedHost = pipedDomains[i % pipedDomains.length];
+    allNodes.push({ url: `https://${invHost}/api/v1/videos/${videoId}`, type: 'inv' });
+    allNodes.push({ url: `https://${pipedHost}/streams/${videoId}`, type: 'piped' });
+  }
+
+  // Barajamos los 500 nodos
+  const shuffledNodes = allNodes.sort(() => Math.random() - 0.5);
+
+  const tryNode = async (node: any) => {
+    const res = await fetch(node.url, { signal: AbortSignal.timeout(4000) });
+    if (!res.ok) throw new Error();
+    const data = await res.json();
     
-    const response = await fetch(url, { signal: AbortSignal.timeout(6000) });
-    if (!response.ok) throw new Error();
-    const data = await response.json();
-    
-    const stream = isInv 
-      ? data.adaptiveFormats?.find((f: any) => f.container === "m4a" || f.type.includes("audio/mp4"))
-      : data.audioStreams?.find((s: any) => s.format === "M4A" || s.mimeType.includes("audio/mp4"));
+    let stream;
+    if (node.type === 'inv') {
+      stream = data.adaptiveFormats?.find((f: any) => f.container === "m4a" || f.type.includes("audio/mp4"));
+    } else {
+      stream = data.audioStreams?.find((s: any) => s.format === "M4A" || s.mimeType.includes("audio/mp4"));
+    }
 
     if (!stream?.url) throw new Error();
     return {
@@ -46,11 +57,13 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     };
   };
 
+  // Ejecución por ráfagas para no tumbar Vercel
   try {
-    // Promise.any lanza todas a la vez y devuelve la primera que funcione
-    const fastestResult = await Promise.any(hosts.map(h => tryNode(h)));
-    return res.status(200).json(fastestResult);
+    // Primero intentamos el nodo maestro, si falla, lanzamos ráfaga de 12 nodos al azar
+    const batch = shuffledNodes.slice(0, 12);
+    const result = await Promise.any(batch.map(n => tryNode(n)));
+    return res.status(200).json(result);
   } catch (e) {
-    return res.status(500).json({ error: "Symphony Timeout", details: "Ningún nodo respondió a tiempo." });
+    return res.status(500).json({ error: "Symphony Critical Failure", details: "500 nodos y el maestro han fallado." });
   }
 }
